@@ -2,6 +2,9 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
+use Illuminate\Foundation\Auth\EmailVerificationRequest;
+use Illuminate\Http\Request;
+use App\Models\User;
 
 // Public routes
 Route::get('/', function () {
@@ -26,8 +29,42 @@ Route::get('/auth/google/login', [AuthController::class, 'redirectToGoogleLogin'
 Route::get('/auth/google/register', [AuthController::class, 'redirectToGoogleRegister'])->name('google.redirect.register');
 Route::get('/auth/google/callback', [AuthController::class, 'handleGoogleCallback'])->name('google.callback');
 
+// Email verification routes
+Route::get('/email/verify', function () {
+	return view('auth.verify-email');
+})->middleware('auth')->name('verification.notice');
+
+// Allow verification without being logged in; validate signature and hash
+Route::get('/email/verify/{id}/{hash}', function (Request $request, $id, $hash) {
+	$user = User::findOrFail($id);
+
+	if (! hash_equals(sha1($user->getEmailForVerification()), (string) $hash)) {
+		abort(403);
+	}
+
+	if (! $request->hasValidSignature()) {
+		abort(403);
+	}
+
+	if ($user->hasVerifiedEmail()) {
+		return redirect()->route('login')->with('success', 'Email Anda sudah terverifikasi. Silakan login.');
+	}
+
+	$user->markEmailAsVerified();
+
+	return redirect()->route('login')->with('success', 'Email berhasil diverifikasi. Silakan login.');
+})->middleware(['signed'])->name('verification.verify');
+
+Route::post('/email/verification-notification', function (Request $request) {
+	$request->user()->sendEmailVerificationNotification();
+	return back()->with('message', 'Link verifikasi baru telah dikirim ke email Anda.');
+})->middleware(['auth', 'throttle:6,1'])->name('verification.send');
+
 // Protected routes
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth', 'verified'])->group(function () {
 	Route::get('/dashboard', [AuthController::class, 'dashboard'])->name('dashboard');
+});
+
+Route::middleware('auth')->group(function () {
 	Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 });

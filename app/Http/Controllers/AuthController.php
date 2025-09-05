@@ -32,6 +32,19 @@ class AuthController extends Controller
 		]);
 
 		if (Auth::attempt($request->only('email', 'password'), $request->boolean('remember'))) {
+			// If user appears unverified, double-check fresh from database
+			if (!Auth::user()->hasVerifiedEmail()) {
+				$currentUserId = Auth::id();
+				$freshUser = User::find($currentUserId);
+				if ($freshUser && $freshUser->hasVerifiedEmail()) {
+					$request->session()->regenerate();
+					return redirect()->intended('/dashboard');
+				}
+				Auth::logout();
+				return back()->withErrors([
+					'email' => 'Gagal login. Silakan verifikasi email Anda terlebih dahulu.'
+				])->withInput($request->only('email'));
+			}
 			$request->session()->regenerate();
 			return redirect()->intended('/dashboard');
 		}
@@ -115,7 +128,6 @@ class AuthController extends Controller
 				'birth_month' => $request->birth_month,
 				'birth_year' => $request->birth_year,
 				'gender' => $request->gender,
-				'email_verified_at' => now(), // Auto verify for now
 			];
 
 			Log::info('User data prepared', ['userData' => array_filter($userData, function($key) {
@@ -140,10 +152,19 @@ class AuthController extends Controller
 			$user = User::create($userData);
 			Log::info('User created successfully', ['user_id' => $user->id]);
 
-			Auth::login($user);
-			Log::info('User logged in successfully');
+			// Send email verification to manual registration only (no google_id)
+			if (empty($user->google_id)) {
+				try {
+					$user->sendEmailVerificationNotification();
+					Log::info('Verification email sent', ['user_id' => $user->id]);
+				} catch (\Exception $e) {
+					Log::error('Failed sending verification email: ' . $e->getMessage());
+				}
+				// Redirect to login with a success notice to verify email first
+				return redirect()->route('login')->with('success', 'Registrasi berhasil! Silakan cek email Anda untuk verifikasi sebelum login.');
+			}
 
-			return redirect('/dashboard')->with('success', 'Registrasi berhasil! Selamat datang, ' . $user->full_name);
+			return redirect('/auth/login')->with('success', 'Registrasi berhasil! Silahkan Login Ulang');
 		} catch (\Exception $e) {
 			Log::error('Registration error: ' . $e->getMessage());
 			Log::error('Registration error trace: ' . $e->getTraceAsString());
@@ -226,6 +247,7 @@ class AuthController extends Controller
 						'birth_month' => 1,
 						'birth_year' => 1990,
 						'gender' => 'other',
+						'email_verified_at' => now(),
 					]);
 
 					Log::info('New user created automatically:', ['user_id' => $user->id]);

@@ -27,6 +27,15 @@
                 </div>
             @endif
 
+            @if(session('success'))
+            <div class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
+                    <ul class="list-disc list-inside text-sm">
+                            <li>{{ session('success') }}</li>
+                    </ul>
+                </div>
+            @endif
+
+
             @if (session('message'))
                 <div class="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded-lg mb-4">
                     <div class="flex items-center">
